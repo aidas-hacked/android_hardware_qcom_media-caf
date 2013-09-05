@@ -134,6 +134,7 @@ static const char* MEM_DEVICE = "/dev/pmem_smipool";
 
 #ifdef _ANDROID_ICS_
 #define MAX_NUM_INPUT_BUFFERS 32
+#define MAX_NUM_OUTPUT_BUFFERS 32
 #endif
 void* message_thread(void *);
 // OMX video class
@@ -204,12 +205,15 @@ public:
   virtual bool dev_empty_buf(void *, void *,unsigned,unsigned) = 0;
   virtual bool dev_fill_buf(void *buffer, void *,unsigned,unsigned) = 0;
   virtual bool dev_get_buf_req(OMX_U32 *,OMX_U32 *,OMX_U32 *,OMX_U32) = 0;
+  virtual bool dev_get_curr_perf_lvl(OMX_PTR) = 0;
   virtual bool dev_get_seq_hdr(void *, unsigned, unsigned *) = 0;
   virtual bool dev_loaded_start(void) = 0;
   virtual bool dev_loaded_stop(void) = 0;
   virtual bool dev_loaded_start_done(void) = 0;
   virtual bool dev_loaded_stop_done(void) = 0;
   virtual bool is_secure_session(void) = 0;
+  virtual bool dev_get_uncache_flag(void) = 0;
+  virtual bool dev_get_capability_ltrcount(OMX_U32 *, OMX_U32 *, OMX_U32 *) = 0;
 #ifdef _ANDROID_ICS_
   void omx_release_meta_buffer(OMX_BUFFERHEADERTYPE *buffer);
 #endif
@@ -388,7 +392,8 @@ public:
     OMX_COMPONENT_GENERATE_RESUME_DONE = 0xF,
     OMX_COMPONENT_GENERATE_STOP_DONE = 0x10,
     OMX_COMPONENT_GENERATE_HARDWARE_ERROR = 0x11,
-    OMX_COMPONENT_GENERATE_ETB_OPQ = 0x12
+    OMX_COMPONENT_GENERATE_ETB_OPQ = 0x12,
+    OMX_COMPONENT_GENERATE_LTRUSE_FAILED = 0x13
   };
 
   struct omx_event
@@ -537,13 +542,17 @@ public:
   OMX_CONFIG_ROTATIONTYPE m_sConfigFrameRotation;
   OMX_CONFIG_INTRAREFRESHVOPTYPE m_sConfigIntraRefreshVOP;
   OMX_VIDEO_PARAM_QUANTIZATIONTYPE m_sSessionQuantization;
+  OMX_QCOM_VIDEO_PARAM_QPRANGETYPE m_sSessionQPRange;
   OMX_VIDEO_PARAM_AVCSLICEFMO m_sAVCSliceFMO;
   QOMX_VIDEO_INTRAPERIODTYPE m_sIntraperiod;
   OMX_VIDEO_PARAM_ERRORCORRECTIONTYPE m_sErrorCorrection;
   OMX_VIDEO_PARAM_INTRAREFRESHTYPE m_sIntraRefresh;
   OMX_U32 m_sExtraData;
-  OMX_U32 m_sDebugSliceinfo;
   OMX_U32 m_input_msg_id;
+  QOMX_VIDEO_PARAM_LTRMODE_TYPE m_sParamLTRMode;
+  QOMX_VIDEO_PARAM_LTRCOUNT_TYPE m_sParamLTRCount;
+  QOMX_VIDEO_CONFIG_LTRPERIOD_TYPE m_sConfigLTRPeriod;
+  QOMX_VIDEO_CONFIG_LTRUSE_TYPE m_sConfigLTRUse;
   // fill this buffer queue
   omx_cmd_queue         m_ftb_q;
   // Command Q for rest of the events
@@ -569,6 +578,8 @@ public:
   unsigned int m_flags;
   unsigned int m_etb_count;
   unsigned int m_fbd_count;
+
+  unsigned int m_curr_perf;
 #ifdef _ANDROID_
   // Heap pointer to frame buffers
   sp<MemoryHeapBase>    m_heap_ptr;
@@ -577,6 +588,12 @@ public:
   bool m_event_port_settings_sent;
   OMX_U8                m_cRole[OMX_MAX_STRINGNAME_SIZE];
   extra_data_handler extra_data_handle;
+  unsigned int extradata_len[MAX_NUM_OUTPUT_BUFFERS];
+  unsigned int extradata_offset[MAX_NUM_OUTPUT_BUFFERS];
+  unsigned int extradata_ltrid[MAX_NUM_OUTPUT_BUFFERS];
+  static int m_venc_num_instances;
+  static int m_venc_ion_devicefd;
+  static pthread_mutex_t m_venc_ionlock;
 
 private:
 #ifdef USE_ION

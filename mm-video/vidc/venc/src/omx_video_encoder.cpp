@@ -159,6 +159,10 @@ OMX_ERRORTYPE omx_venc::component_init(OMX_STRING role)
     return OMX_ErrorInsufficientResources;
   }
 
+  //Getting current performance level
+  m_curr_perf = 0;
+  dev_get_curr_perf_lvl(&m_curr_perf);
+
   //Intialise the OMX layer variables
   memset(&m_pCallbacks,0,sizeof(OMX_CALLBACKTYPE));
 
@@ -200,6 +204,14 @@ OMX_ERRORTYPE omx_venc::component_init(OMX_STRING role)
   m_sSessionQuantization.nQpI = 9;
   m_sSessionQuantization.nQpP = 6;
   m_sSessionQuantization.nQpB = 2;
+
+  OMX_INIT_STRUCT(&m_sSessionQPRange, OMX_QCOM_VIDEO_PARAM_QPRANGETYPE);
+  m_sSessionQPRange.nPortIndex = (OMX_U32) PORT_INDEX_OUT;
+  m_sSessionQPRange.minQP = 2;
+  if(codec_type == OMX_VIDEO_CodingAVC)
+    m_sSessionQPRange.maxQP = 51;
+  else
+    m_sSessionQPRange.maxQP = 31;
 
   OMX_INIT_STRUCT(&m_sAVCSliceFMO, OMX_VIDEO_PARAM_AVCSLICEFMO);
   m_sAVCSliceFMO.nPortIndex = (OMX_U32) PORT_INDEX_OUT;
@@ -255,7 +267,8 @@ OMX_ERRORTYPE omx_venc::component_init(OMX_STRING role)
   m_sInPortDef.format.video.nSliceHeight = OMX_CORE_QCIF_HEIGHT;
   m_sInPortDef.format.video.nBitrate = 64000;
   m_sInPortDef.format.video.xFramerate = 15 << 16;
-  m_sInPortDef.format.video.eColorFormat =  OMX_COLOR_FormatYUV420SemiPlanar;
+  m_sInPortDef.format.video.eColorFormat =  (OMX_COLOR_FORMATTYPE)
+      QOMX_COLOR_FORMATYUV420PackedSemiPlanar32m;
   m_sInPortDef.format.video.eCompressionFormat =  OMX_VIDEO_CodingUnused;
 
   if(dev_get_buf_req(&m_sInPortDef.nBufferCountMin,
@@ -303,7 +316,8 @@ OMX_ERRORTYPE omx_venc::component_init(OMX_STRING role)
   OMX_INIT_STRUCT(&m_sInPortFormat, OMX_VIDEO_PARAM_PORTFORMATTYPE);
   m_sInPortFormat.nPortIndex = (OMX_U32) PORT_INDEX_IN;
   m_sInPortFormat.nIndex = 0;
-  m_sInPortFormat.eColorFormat =  OMX_COLOR_FormatYUV420SemiPlanar;
+  m_sInPortFormat.eColorFormat =  (OMX_COLOR_FORMATTYPE)
+      QOMX_COLOR_FORMATYUV420PackedSemiPlanar32m;
   m_sInPortFormat.eCompressionFormat = OMX_VIDEO_CodingUnused;
 
 
@@ -391,15 +405,25 @@ OMX_ERRORTYPE omx_venc::component_init(OMX_STRING role)
   m_sParamAVC.nCabacInitIdc = 0;
   m_sParamAVC.eLoopFilterMode = OMX_VIDEO_AVCLoopFilterEnable;
 
+  OMX_INIT_STRUCT(&m_sParamLTRMode, QOMX_VIDEO_PARAM_LTRMODE_TYPE);
+  m_sParamLTRMode.nPortIndex = (OMX_U32) PORT_INDEX_OUT;
+  m_sParamLTRMode.eLTRMode = QOMX_VIDEO_LTRMode_Disable;
+
   m_state                   = OMX_StateLoaded;
   m_sExtraData = 0;
-  m_sDebugSliceinfo = 0;
-#ifdef _ANDROID_
-  char value[PROPERTY_VALUE_MAX] = {0};
-  property_get("vidc.venc.debug.sliceinfo", value, "0");
-  m_sDebugSliceinfo = (OMX_U32)atoi(value);
-  DEBUG_PRINT_HIGH("vidc.venc.debug.sliceinfo value is %d", m_sDebugSliceinfo);
-#endif
+
+  // For H264 enable some parameters in VUI by default
+  if (codec_type == OMX_VIDEO_CodingAVC)
+  {
+    QOMX_VUI_BITSTREAM_RESTRICT parm;
+    OMX_INIT_STRUCT(&parm, QOMX_VUI_BITSTREAM_RESTRICT);
+    parm.bEnable = OMX_TRUE;
+    if (set_parameter(NULL, (OMX_INDEXTYPE)OMX_QcomIndexParamEnableVUIStreamRestrictFlag,
+         (OMX_PTR)&parm)) {
+      // Don't treat this as a fatal error
+      DEBUG_PRINT_ERROR("Unable to set EnableVUIStreamRestrictFlag as default");
+    }
+  }
 
   if(eRet == OMX_ErrorNone)
   {
@@ -439,7 +463,6 @@ OMX_ERRORTYPE omx_venc::component_init(OMX_STRING role)
       }
     }
   }
-
   DEBUG_PRINT_HIGH("\n Component_init return value = 0x%x", eRet);
   return eRet;
 }
@@ -518,8 +541,8 @@ OMX_ERRORTYPE  omx_venc::set_parameter(OMX_IN OMX_HANDLETYPE     hComp,
 
 #ifdef _ANDROID_ICS_
         if (portDefn->format.video.eColorFormat == (OMX_COLOR_FORMATTYPE)QOMX_COLOR_FormatAndroidOpaque) {
-            m_sInPortDef.format.video.eColorFormat =
-                OMX_COLOR_FormatYUV420SemiPlanar;
+            m_sInPortDef.format.video.eColorFormat = (OMX_COLOR_FORMATTYPE)
+                QOMX_COLOR_FORMATYUV420PackedSemiPlanar32m;
             if(secure_session) {
               secure_color_format = (int) QOMX_COLOR_FormatAndroidOpaque;
               mUseProxyColorFormat = false;
@@ -599,7 +622,8 @@ OMX_ERRORTYPE  omx_venc::set_parameter(OMX_IN OMX_HANDLETYPE     hComp,
 #ifdef _ANDROID_ICS_
         if (portFmt->eColorFormat ==
             (OMX_COLOR_FORMATTYPE)QOMX_COLOR_FormatAndroidOpaque) {
-            m_sInPortFormat.eColorFormat = OMX_COLOR_FormatYUV420SemiPlanar;
+            m_sInPortFormat.eColorFormat = (OMX_COLOR_FORMATTYPE)
+                QOMX_COLOR_FORMATYUV420PackedSemiPlanar32m;
             if(secure_session) {
               secure_color_format = (int) QOMX_COLOR_FormatAndroidOpaque;
               mUseProxyColorFormat = false;
@@ -918,6 +942,28 @@ OMX_ERRORTYPE  omx_venc::set_parameter(OMX_IN OMX_HANDLETYPE     hComp,
       break;
     }
 
+  case OMX_QcomIndexParamVideoQPRange:
+    {
+      DEBUG_PRINT_LOW("set_parameter: OMX_QcomIndexParamVideoQPRange\n");
+      OMX_QCOM_VIDEO_PARAM_QPRANGETYPE *qp_range = (OMX_QCOM_VIDEO_PARAM_QPRANGETYPE*) paramData;
+      if(qp_range->nPortIndex == PORT_INDEX_OUT)
+      {
+        if(handle->venc_set_param(paramData,
+              (OMX_INDEXTYPE)OMX_QcomIndexParamVideoQPRange) != true)
+        {
+          return OMX_ErrorUnsupportedSetting;
+        }
+        m_sSessionQPRange.minQP= qp_range->minQP;
+        m_sSessionQPRange.maxQP= qp_range->maxQP;
+      }
+      else
+      {
+        DEBUG_PRINT_ERROR("\nERROR: Unsupported port Index for QP range setting\n");
+        eRet = OMX_ErrorBadPortIndex;
+      }
+      break;
+    }
+
   case OMX_QcomIndexPortDefn:
     {
       OMX_QCOM_PARAM_PORTDEFINITIONTYPE* pParam =
@@ -1058,12 +1104,67 @@ OMX_ERRORTYPE  omx_venc::set_parameter(OMX_IN OMX_HANDLETYPE     hComp,
           eRet = OMX_ErrorUnsupportedIndex;
         }
       }
+      else if (pParam->nIndex == (OMX_INDEXTYPE)OMX_ExtraDataVideoLTRInfo)
+      {
+        if (pParam->nPortIndex == PORT_INDEX_OUT)
+        {
+          if (pParam->bEnabled == OMX_TRUE)
+            m_sExtraData |= VEN_EXTRADATA_LTRINFO;
+          else
+            m_sExtraData &= ~VEN_EXTRADATA_LTRINFO;
+          DEBUG_PRINT_HIGH("LTRInfo extradata %s",
+            ((pParam->bEnabled == OMX_TRUE) ? "enabled" : "disabled"));
+          if(handle->venc_set_param(&m_sExtraData,
+            (OMX_INDEXTYPE)OMX_ExtraDataVideoLTRInfo) != true)
+          {
+            DEBUG_PRINT_ERROR("ERROR: Setting "
+              "OMX_ExtraDataVideoLTRInfo failed");
+            return OMX_ErrorUnsupportedSetting;
+          }
+          else
+          {
+            m_sOutPortDef.nPortIndex = PORT_INDEX_OUT;
+            dev_get_buf_req(&m_sOutPortDef.nBufferCountMin,
+              &m_sOutPortDef.nBufferCountActual,
+              &m_sOutPortDef.nBufferSize,
+              m_sOutPortDef.nPortIndex);
+            DEBUG_PRINT_HIGH("updated out_buf_req: buffer cnt=%d, "
+              "count min=%d, buffer size=%d",
+              m_sOutPortDef.nBufferCountActual,
+              m_sOutPortDef.nBufferCountMin,
+              m_sOutPortDef.nBufferSize);
+          }
+        }
+      }
       else
       {
-        DEBUG_PRINT_ERROR("set_parameter: unsupported index (%x), "
-            "only slice information extradata is supported", pParam->nIndex);
+        DEBUG_PRINT_ERROR("set_parameter: unsupported index (%x)", pParam->nIndex);
         eRet = OMX_ErrorUnsupportedIndex;
       }
+      break;
+    }
+  case QOMX_IndexParamVideoLTRMode:
+    {
+      QOMX_VIDEO_PARAM_LTRMODE_TYPE* pParam =
+        (QOMX_VIDEO_PARAM_LTRMODE_TYPE*)paramData;
+      if(!handle->venc_set_param(paramData, (OMX_INDEXTYPE)QOMX_IndexParamVideoLTRMode))
+      {
+        DEBUG_PRINT_ERROR("\nERROR: Setting LTR mode failed");
+        return OMX_ErrorUnsupportedSetting;
+      }
+      memcpy(&m_sParamLTRMode, pParam, sizeof(m_sParamLTRMode));
+      break;
+    }
+  case QOMX_IndexParamVideoLTRCount:
+    {
+      QOMX_VIDEO_PARAM_LTRCOUNT_TYPE* pParam =
+        (QOMX_VIDEO_PARAM_LTRCOUNT_TYPE*)paramData;
+      if(!handle->venc_set_param(paramData, (OMX_INDEXTYPE)QOMX_IndexParamVideoLTRCount))
+      {
+        DEBUG_PRINT_ERROR("\nERROR: Setting LTR count failed");
+        return OMX_ErrorUnsupportedSetting;
+      }
+      memcpy(&m_sParamLTRCount, pParam, sizeof(m_sParamLTRCount));
       break;
     }
 #endif
@@ -1115,6 +1216,17 @@ OMX_ERRORTYPE  omx_venc::set_parameter(OMX_IN OMX_HANDLETYPE     hComp,
             (OMX_INDEXTYPE)OMX_QcomIndexParamSequenceHeaderWithIDR))
       {
         DEBUG_PRINT_ERROR("ERROR: Request for setting inband sps/pps failed");
+        return OMX_ErrorUnsupportedSetting;
+      }
+      break;
+    }
+  case OMX_QcomIndexParamEnableVUIStreamRestrictFlag:
+    {
+      if(!handle->venc_set_param(paramData,
+            (OMX_INDEXTYPE)OMX_QcomIndexParamEnableVUIStreamRestrictFlag))
+      {
+        DEBUG_PRINT_ERROR("ERROR: Request for enabling bitstream_restrict "
+                        "flag in VUI failed");
         return OMX_ErrorUnsupportedSetting;
       }
       break;
@@ -1403,6 +1515,35 @@ OMX_ERRORTYPE  omx_venc::set_config(OMX_IN OMX_HANDLETYPE      hComp,
       }
       break;
     }
+  case QOMX_IndexConfigVideoLTRPeriod:
+    {
+      QOMX_VIDEO_CONFIG_LTRPERIOD_TYPE* pParam = (QOMX_VIDEO_CONFIG_LTRPERIOD_TYPE*)configData;
+      if(!handle->venc_set_config(configData, (OMX_INDEXTYPE)QOMX_IndexConfigVideoLTRPeriod))
+      {
+        DEBUG_PRINT_ERROR("\nERROR: Setting LTR period failed");
+        return OMX_ErrorUnsupportedSetting;
+      }
+      memcpy(&m_sConfigLTRPeriod, pParam, sizeof(m_sConfigLTRPeriod));
+      break;
+    }
+  case QOMX_IndexConfigVideoLTRUse:
+    {
+      QOMX_VIDEO_CONFIG_LTRUSE_TYPE* pParam = (QOMX_VIDEO_CONFIG_LTRUSE_TYPE*)configData;
+      if(!handle->venc_set_config(configData, (OMX_INDEXTYPE)QOMX_IndexConfigVideoLTRUse))
+      {
+        DEBUG_PRINT_ERROR("\nERROR: Setting LTR use failed");
+        return OMX_ErrorUnsupportedSetting;
+      }
+      memcpy(&m_sConfigLTRUse, pParam, sizeof(m_sConfigLTRUse));
+      break;
+    }
+  case QOMX_IndexConfigVideoLTRMark:
+    {
+      QOMX_VIDEO_CONFIG_LTRMARK_TYPE* pParam = (QOMX_VIDEO_CONFIG_LTRMARK_TYPE*)configData;
+      DEBUG_PRINT_ERROR("Setting ltr mark is not supported");
+      return OMX_ErrorUnsupportedSetting;
+      break;
+    }
   default:
     DEBUG_PRINT_ERROR("ERROR: unsupported index %d", (int) configIndex);
     break;
@@ -1545,6 +1686,11 @@ bool omx_venc::dev_get_seq_hdr(void *buffer, unsigned size, unsigned *hdrlen)
   return handle->venc_get_seq_hdr(buffer, size, hdrlen);
 }
 
+bool omx_venc::dev_get_capability_ltrcount(OMX_U32 *min, OMX_U32 *max, OMX_U32 *step_size)
+{
+  return handle->venc_get_capability_ltrcount(min, max, step_size);
+}
+
 bool omx_venc::dev_loaded_start()
 {
   return handle->venc_loaded_start();
@@ -1575,6 +1721,11 @@ bool omx_venc::dev_get_buf_req(OMX_U32 *min_buff_count,
                                   buff_size,
                                   port);
 
+}
+
+bool omx_venc::dev_get_curr_perf_lvl(OMX_PTR curr_perf)
+{
+  return handle->venc_get_curr_perf_lvl(curr_perf);
 }
 
 bool omx_venc::dev_set_buf_req(OMX_U32 *min_buff_count,
@@ -1674,11 +1825,21 @@ int omx_venc::async_message_process (void *context, void* message)
     {
       if(m_sVenc_msg->buf.len <=  omxhdr->nAllocLen)
       {
+        int idx = omxhdr - omx->m_out_mem_ptr;
         omxhdr->nFilledLen = m_sVenc_msg->buf.len;
         omxhdr->nOffset = m_sVenc_msg->buf.offset;
         omxhdr->nTimeStamp = m_sVenc_msg->buf.timestamp;
-        DEBUG_PRINT_LOW("\n o/p TS = %u", (OMX_U32)m_sVenc_msg->buf.timestamp);
         omxhdr->nFlags = m_sVenc_msg->buf.flags;
+        omx->extradata_len[idx] = m_sVenc_msg->buf.metadata_len;
+        omx->extradata_offset[idx] = m_sVenc_msg->buf.metadata_offset;
+        omx->extradata_ltrid[idx] = m_sVenc_msg->buf.metadata_ltrid;
+        DEBUG_PRINT_LOW("[RespBufDone]: pBuffer = 0x%x, nFilledLen = %d, "\
+            "nAllocLen = %d, Ts = %lld, nFlags = 0x%x, nOffset = %d, "\
+            "Extradata Info: Idx = %d, Offset(%d), len(%d), ltrid(%d)",
+            omxhdr->pBuffer, omxhdr->nFilledLen, omxhdr->nAllocLen,
+            omxhdr->nTimeStamp, omxhdr->nFlags, omxhdr->nOffset,
+            idx, omx->extradata_offset[idx], omx->extradata_len[idx],
+            omx->extradata_ltrid[idx]);
 
         /*Use buffer case*/
         if(omx->output_use_buffer && !omx->m_use_output_pmem)
@@ -1691,6 +1852,8 @@ int omx_venc::async_message_process (void *context, void* message)
       }
       else
       {
+        DEBUG_PRINT_HIGH("nFilledLen[%d] is more than nAllocLen[%d]",
+            omxhdr->nFilledLen, omxhdr->nAllocLen);
         omxhdr->nFilledLen = 0;
       }
 
@@ -1707,6 +1870,11 @@ int omx_venc::async_message_process (void *context, void* message)
   case VEN_MSG_NEED_OUTPUT_BUFFER:
     //TBD what action needs to be done here??
     break;
+  case VEN_MSG_LTRUSE_FAILED:
+    DEBUG_PRINT_ERROR("LTRUSE Failed!");
+    omx->post_event (NULL,m_sVenc_msg->statuscode,
+      OMX_COMPONENT_GENERATE_LTRUSE_FAILED);
+    break;
   default:
     break;
   }
@@ -1716,3 +1884,9 @@ bool omx_venc::is_secure_session()
 {
   return secure_session;
 }
+
+bool omx_venc::dev_get_uncache_flag()
+{
+  return handle->venc_get_uncache_flag();
+}
+

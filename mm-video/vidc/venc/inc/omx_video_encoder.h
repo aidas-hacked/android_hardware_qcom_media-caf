@@ -72,6 +72,7 @@ private:
   bool dev_empty_buf(void *, void *,unsigned,unsigned);
   bool dev_fill_buf(void *, void *,unsigned,unsigned);
   bool dev_get_buf_req(OMX_U32 *,OMX_U32 *,OMX_U32 *,OMX_U32);
+  bool dev_get_curr_perf_lvl(OMX_PTR);
   bool dev_set_buf_req(OMX_U32 *,OMX_U32 *,OMX_U32 *,OMX_U32);
   bool update_profile_level();
   bool dev_get_seq_hdr(void *, unsigned, unsigned *);
@@ -79,6 +80,8 @@ private:
   bool dev_loaded_stop(void);
   bool dev_loaded_start_done(void);
   bool dev_loaded_stop_done(void);
+  bool dev_get_uncache_flag(void);
+  bool dev_get_capability_ltrcount(OMX_U32 *, OMX_U32 *, OMX_U32 *);
 };
 
 #endif //__OMX_VENC__H

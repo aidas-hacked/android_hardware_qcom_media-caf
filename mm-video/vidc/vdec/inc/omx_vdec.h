@@ -386,6 +386,7 @@ public:
                                 OMX_PTR              appData,
                                 void *               eglImage);
     void complete_pending_buffer_done_cbs();
+    void update_resolution(int width, int height);
     struct video_driver_context drv_ctx;
     int  m_pipe_in;
     int  m_pipe_out;
@@ -626,6 +627,8 @@ private:
     void append_portdef_extradata(OMX_OTHER_EXTRADATATYPE *extra);
     void append_extn_extradata(OMX_OTHER_EXTRADATATYPE *extra, OMX_OTHER_EXTRADATATYPE *p_extn);
     void append_user_extradata(OMX_OTHER_EXTRADATATYPE *extra, OMX_OTHER_EXTRADATATYPE *p_user);
+    void append_concealmb_extradata(OMX_OTHER_EXTRADATATYPE *extra,
+      OMX_OTHER_EXTRADATATYPE *p_concealmb, OMX_U8 *conceal_mb_data);
     void insert_demux_addr_offset(OMX_U32 address_offset);
     void extract_demux_addr_offsets(OMX_BUFFERHEADERTYPE *buf_hdr);
     OMX_ERRORTYPE handle_demux_data(OMX_BUFFERHEADERTYPE *buf_hdr);
@@ -746,6 +749,7 @@ private:
     OMX_BOOL m_out_bPopulated;
     // encapsulate the waiting states.
     unsigned int m_flags;
+    OMX_BOOL m_out_sync_frm_received;
 
 #ifdef _ANDROID_
     // Heap pointer to frame buffers
@@ -787,6 +791,7 @@ private:
     unsigned nal_length;
     bool look_ahead_nal;
     int first_frame;
+    unsigned int current_performance;
     unsigned char *first_buffer;
     int first_frame_size;
     unsigned char m_hwdevice_name[80];
@@ -853,12 +858,15 @@ private:
     bool external_meta_buffer_iommu;
     OMX_QCOM_EXTRADATA_FRAMEINFO *m_extradata;
     bool codec_config_flag;
+    OMX_CONFIG_RECTTYPE rectangle;
 #ifdef _COPPER_
     int capture_capability;
     int output_capability;
     bool streaming[MAX_PORT];
 #endif
     unsigned int m_fill_output_msg;
+    bool m_use_uncache_buffers;
+
     class allocate_color_convert_buf {
     public:
         allocate_color_convert_buf();
@@ -907,8 +915,13 @@ private:
     static bool m_secure_display; //For qservice
     int secureDisplay(int mode);
     int unsecureDisplay(int mode);
+    int set_turbo_mode(bool mode);
     bool msg_thread_created;
     bool async_thread_created;
+    bool m_turbo_mode;
+    static int m_vdec_num_instances;
+    static int m_vdec_ion_devicefd;
+    static pthread_mutex_t m_vdec_ionlock;
 };
 
 #ifdef _COPPER_
