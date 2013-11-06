@@ -9,9 +9,6 @@ endif
 
 ifneq ($(filter msm8974 msm8960 msm8660 msm7x30,$(TARGET_BOARD_PLATFORM)),)
 include $(QCOM_MEDIA_ROOT)/mm-video/Android.mk
-endif
-
-ifneq ($(filter msm8974 msm8960 msm8660 msm8960 msm8660 msm7x30,$(TARGET_BOARD_PLATFORM)),)
 include $(QCOM_MEDIA_ROOT)/libc2dcolorconvert/Android.mk
 endif
 endif
