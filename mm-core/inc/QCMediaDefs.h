@@ -61,7 +61,6 @@ extern const char *MEDIA_MIMETYPE_CONTAINER_QCMPEG2PS;
 extern const char *MEDIA_MIMETYPE_CONTAINER_QCMPEG4;
 extern const char *MEDIA_MIMETYPE_CONTAINER_QCMATROSKA;
 extern const char *MEDIA_MIMETYPE_CONTAINER_QCOGG;
-
 }  // namespace android
 
 #endif  //QC_MEDIA_DEFS_H_
